@@ -1,17 +1,20 @@
 const S3 = require('aws-sdk/clients/s3');
 const response = require('cfn-response')
 
-setTimeout(async (event, context) => {
-  console.log("Lambda timeout")
 
-  return await send(event, context, "FAILED", {
-    body: "Deletion completed"
-  })
-
-}, 1000 * 30) // 30 sec timeout
 
 exports.handler = (event, context) => {
-  setTimeout(event, context)
+
+  setTimeout((event, context) => {
+    console.log("TIMEOUT")
+
+    return response.send(event, context, "FAILED", {
+      body: "Lambda timeouted"
+    })
+
+  }, 1000 * 60) // the value is in milliseconds
+
+
   if (event.RequestType == "Delete") {
     const bucketName = event.ResourceProperties.BucketName;
     try {
