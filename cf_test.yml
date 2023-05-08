@@ -1,0 +1,101 @@
+Description: "Load balancer template"
+# TODO:
+#   - aggiungere il selettore delle repo git nel template
+#   - aggiungere la creazione di ogni role e policy
+Resources:
+
+  CleanBucket:
+    Type: Custom::cleanBucket
+    Properties:
+      ServiceToken: !GetAtt LFCleanBucket.Arn
+      # BucketName: !Ref ArtifactStoreBucket
+      # Region: !Ref AWS::Region
+
+  LFCleanBucket:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: nodejs18.x
+      Handler: index.handler
+      Code:
+        ZipFile: |
+          const response = require("cfn-response")
+          const { S3Client, ListObjectsCommand, DeleteObjectsCommand } = require("@aws-sdk/client-s3");
+
+          const send = (event, context, responseStatus, responseData, physicalResourceId) => {
+            return new Promise((resolve) => {
+              const done = context.done
+              context.done = (event, context, responseStatus, responseData, physicalResourceId) => {
+                resolve(done(event, context, responseStatus, responseData, physicalResourceId))
+              }
+              response.send(event, context, responseStatus, responseData, physicalResourceId)
+            })
+          }
+
+          exports.handler = async (event, context) => {
+            setTimeout(async (event, context) => {
+              console.log("TIMEOUT")
+              return await send(event, context, "FAILED", {
+                body: "Lambda timeouted"
+              })
+            }, 1000 * 60) // the value is in milliseconds
+
+            if (event.RequestType == "Delete") {
+              const bucketName = 'dmitri-bucket'
+              const region = 'eu-north-1'
+              try {
+                var s3 = new S3Client({
+                  region: region
+                })
+              } catch (e) {
+                console.log(e)
+              }
+
+              const listResponse = await s3.send(new ListObjectsCommand({
+                Bucket: bucketName,
+              }))
+
+              try {
+
+                var keys = listResponse.Contents.map(obj => {
+                  return { Key: obj.Key }
+                })
+              } catch (e) {
+
+                // l'errore avviene quando la lista di oggetti nel bucket ? vuota e quindi non esiste la funzione map su di loro
+                // quindi il bucket ? gi? vuoto
+
+
+                return await send(event, context, response.SUCCESS, {
+                  body: "Nothing to delete"
+                })
+              }
+              const deleteResponse = await s3.send(new DeleteObjectsCommand({
+                Bucket: bucketName,
+                Delete: {
+                  Objects: keys
+                }
+              }))
+
+              return await send(event, context, response.SUCCESS, {
+                body: "Deletion completed " + deleteResponse
+              })
+
+
+              // TODO: se la lista ? vuota map da errore ma posso uscire con success perch? la lista ? gi? vuota
+              return await send(event, context, response.SUCCESS, {
+                body: "Delete completed"
+              })
+            } else if (event.RequestType == "Update") {
+              return await send(event, context, response.SUCCESS, {
+                body: "Update completed"
+              })
+            } else if (event.RequestType == "Create") {
+              return await send(event, context, response.SUCCESS, {
+                body: "Create completed"
+              })
+            }
+          }
+
+      # KmsKeyArn: !GetAtt KMSKey.Arn
+      Role: arn:aws:iam::861507897222:role/dmitriLambdaRoleDeleteS3Object
+      Timeout: 60

@@ -1,73 +1,70 @@
-const S3 = require('aws-sdk/clients/s3');
-const response = require('cfn-response')
+const response = require("cfn-response")
+const { S3Client, ListObjectsCommand, DeleteObjectsCommand } = require("@aws-sdk/client-s3");
 
+const send = (event, context, responseStatus, responseData, physicalResourceId) => {
+  return new Promise((resolve) => {
+    const done = context.done
+    context.done = (event, context, responseStatus, responseData, physicalResourceId) => {
+      resolve(done(event, context, responseStatus, responseData, physicalResourceId))
+    }
+    response.send(event, context, responseStatus, responseData, physicalResourceId)
+  })
+}
 
-
-exports.handler = (event, context) => {
-
-  setTimeout((event, context) => {
+exports.handler = async (event, context) => {
+  setTimeout(async (event, context) => {
     console.log("TIMEOUT")
-
-    return response.send(event, context, "FAILED", {
+    return await send(event, context, "FAILED", {
       body: "Lambda timeouted"
     })
-
   }, 1000 * 60) // the value is in milliseconds
-
 
   if (event.RequestType == "Delete") {
     const bucketName = event.ResourceProperties.BucketName;
+    const region = event.ResourceProperties.Region;
+
     try {
-      var s3 = new S3({
-        //TODO: get region from stack
-        region: "eu-north-1"
-      });
+      var s3 = new S3Client({
+        region: region
+      })
     } catch (e) {
-      return response.send(event, context, response.FAILED, { body: e })
+      console.log(e)
     }
-    s3.listObjects({
+
+    const listResponse = await s3.send(new ListObjectsCommand({
       Bucket: bucketName,
-    }, (err, data) => {
-      if (err) {
-        console.log(err)
-        // array lenght 0
-        return response.send(event, context, response.SUCCESS, { body: err })
+    }))
 
+    try {
 
+      var keys = listResponse.Contents.map(obj => {
+        return { Key: obj.Key }
+      })
+    } catch (e) {
+
+      return await send(event, context, response.SUCCESS, {
+        body: "Nothing to delete"
+      })
+    }
+    const deleteResponse = await s3.send(new DeleteObjectsCommand({
+      Bucket: bucketName,
+      Delete: {
+        Objects: keys
       }
-      else {
-        //console.log(data.Contents)
-        const arrayOfKeys = data.Contents.map(obj => {
-          return { Key: obj.Key };
-        });
+    }))
 
-        //console.log(arrayOfKeys);
-
-        s3.deleteObjects({
-          Bucket: bucketName,
-          Delete: {
-            Objects: arrayOfKeys
-          }
-        }, (err, data) => {
-          if (err) {
-            return response.send(event, context, response.FAILED, { body: "Deletion failed: " + err })
-          }
-          else {
-            return response.send(event, context, response.SUCCESS, { body: "Deletion completed" })
-          }
-
-        })
-      }
+    return await send(event, context, response.SUCCESS, {
+      body: "Deletion completed " + deleteResponse
     })
+
 
   } else if (event.RequestType == "Update") {
-    return response.send(event, context, response.SUCCESS, {
-      body: "update"
+    return await send(event, context, response.SUCCESS, {
+      body: "Update completed"
     })
   } else if (event.RequestType == "Create") {
-    return response.send(event, context, response.SUCCESS, {
-      body: "create"
+    return await send(event, context, response.SUCCESS, {
+      body: "Create completed"
     })
   }
 }
-
